@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/csv"
 	"fmt"
 	"math/rand"
 	"os"
@@ -16,6 +17,10 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/spf13/cobra"
 )
+
+// TODO: refactor everything
+// TODO: add a way to delete passwords
+// TODO: add a way to update passwords
 
 var (
 	includeSpecial bool
@@ -88,6 +93,7 @@ Available Commands:
   show        Show all stored passwords
   search      Search for stored passwords
   get         Get a specific password by source/username
+  import      Import passwords from a CSV file
 
 Flags:
   -h, --help   help for passgen
@@ -120,6 +126,15 @@ var getCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		getPassword(args[0])
+	},
+}
+
+var importCmd = &cobra.Command{
+	Use:   "import [csv_file]",
+	Short: "Import passwords from a CSV file",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		importPasswords(args[0])
 	},
 }
 
@@ -205,13 +220,13 @@ func searchPasswords() {
 	}
 
 	// Handle the selected item
-	if m, ok := m.(searchModel); ok && m.selectedItem != "" {
-		getPassword(m.selectedItem)
+	if m, ok := m.(searchModel); ok && m.selectedItem != nil {
+		selectedItem := m.selectedItem.(listItem)
+		copyPasswordToClipboard(selectedItem.source, selectedItem.username)
 	}
 }
 
 type listItem struct {
-	title    string
 	source   string
 	username string
 	url      string
@@ -233,7 +248,7 @@ type searchModel struct {
 	entries      []PasswordEntry
 	searchInput  textinput.Model
 	list         list.Model
-	selectedItem string
+	selectedItem list.Item
 	focused      string // "input" or "list"
 }
 
@@ -326,7 +341,7 @@ func (m searchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.focused == "list" {
 				selectedItem := m.list.SelectedItem()
 				if selectedItem != nil {
-					m.selectedItem = selectedItem.(listItem).title
+					m.selectedItem = selectedItem
 					return m, tea.Quit
 				}
 			}
@@ -572,6 +587,65 @@ func storeInPass(password string) {
 	}
 }
 
+func copyPasswordToClipboard(source, username string) {
+	var password string
+	err := db.QueryRow("SELECT password FROM passwords WHERE source = ? AND username = ?", source, username).Scan(&password)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			fmt.Println(styleError.Render(fmt.Sprintf("❌ No password found for %s/%s", source, username)))
+		} else {
+			fmt.Println(styleError.Render("❌ Error fetching password: " + err.Error()))
+		}
+		return
+	}
+
+	err = clipboard.WriteAll(password)
+	if err != nil {
+		fmt.Println(styleError.Render("❌ Failed to copy password to clipboard: " + err.Error()))
+	} else {
+		fmt.Printf(styleSuccess.Render("📋 Password for %s/%s copied to clipboard. Will clear in 45 seconds.\n"), source, username)
+
+		go func() {
+			time.Sleep(45 * time.Second)
+			err := clipboard.WriteAll("")
+			if err != nil {
+				fmt.Println(styleError.Render("❌ Failed to clear clipboard: " + err.Error()))
+			}
+		}()
+	}
+}
+
+func importPasswords(filename string) {
+	file, err := os.Open(filename)
+	if err != nil {
+		fmt.Println(styleError.Render("❌ Error opening CSV file: " + err.Error()))
+		return
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	records, err := reader.ReadAll()
+	if err != nil {
+		fmt.Println(styleError.Render("❌ Error reading CSV file: " + err.Error()))
+		return
+	}
+
+	// Skip the header row
+	for _, record := range records[1:] {
+		source := record[0]
+		url := record[1]
+		username := record[2]
+		password := record[3]
+
+		_, err := db.Exec("INSERT OR REPLACE INTO passwords (source, username, password, url) VALUES (?, ?, ?, ?)", source, username, password, url)
+		if err != nil {
+			fmt.Printf(styleError.Render("❌ Error importing password for %s: %s\n"), source, err.Error())
+		} else {
+			fmt.Printf(styleSuccess.Render("✅ Imported password for %s\n"), source)
+		}
+	}
+}
+
 func main() {
 	fmt.Println(styleHeading.Render("🔑 Password Manager CLI"))
 	if err := rootCmd.Execute(); err != nil {
@@ -584,6 +658,7 @@ func init() {
 	rootCmd.AddCommand(showCmd)
 	rootCmd.AddCommand(searchCmd)
 	rootCmd.AddCommand(getCmd)
+	rootCmd.AddCommand(importCmd)
 }
 
 var docStyle = lipgloss.NewStyle().Margin(1, 2)
