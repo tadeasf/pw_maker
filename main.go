@@ -94,6 +94,7 @@ func generatePassword() {
 		fmt.Println(styleSuccess.Render("📋 Password copied to clipboard."))
 	}
 
+	// Call storeInPass with the generated password
 	storeInPass(string(password))
 }
 
@@ -158,6 +159,7 @@ func initialModel(password string) model {
 		m.textInputs[i] = t
 	}
 
+	m.textInputs[0].Focus()
 	m.searchInput = textinput.New()
 	m.searchInput.Placeholder = "Search passwords..."
 	m.searchInput.Focus()
@@ -296,6 +298,19 @@ func (m *model) filterPasswords(query string) []list.Item {
 }
 
 func storeInPass(password string) {
+	fmt.Println(stylePrompt.Render("Do you want to store this password? (y/n)"))
+	var response string
+	_, err := fmt.Scanln(&response)
+	if err != nil {
+		fmt.Println(styleError.Render("❌ Error reading input: " + err.Error()))
+		return
+	}
+
+	if response != "y" && response != "Y" {
+		fmt.Println(stylePrompt.Render("👋 Exiting without storing password."))
+		return
+	}
+
 	p := tea.NewProgram(initialModel(password))
 	m, err := p.Run()
 	if err != nil {
@@ -314,7 +329,6 @@ func storeInPass(password string) {
 	}
 
 	passEntry := fmt.Sprintf("%s\nusername: %s\nsource: %s\nurl: %s", password, username, source, url)
-
 	passName := fmt.Sprintf("%s/%s", source, username)
 
 	cmd := exec.Command("pass", "insert", "-m", passName)
