@@ -22,8 +22,6 @@ import (
 )
 
 // TODO: refactor everything
-// TODO: add a way to delete passwords
-// TODO: add a way to update passwords
 
 var (
 	includeSpecial bool
@@ -165,6 +163,8 @@ Available Commands:
   search      Search for stored passwords
   get         Get a specific password by source/username
   import      Import passwords from a CSV file
+  delete      Delete a specific password
+  update      Update a specific password
 
 Flags:
   -h, --help   help for passgen
@@ -206,6 +206,24 @@ var importCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		importPasswords(args[0])
+	},
+}
+
+var deleteCmd = &cobra.Command{
+	Use:   "delete [source/username]",
+	Short: "Delete a specific password",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		deletePassword(args[0])
+	},
+}
+
+var updateCmd = &cobra.Command{
+	Use:   "update [source/username]",
+	Short: "Update a specific password",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		updatePassword(args[0])
 	},
 }
 
@@ -717,6 +735,90 @@ func importPasswords(filename string) {
 	}
 }
 
+func deletePassword(name string) {
+	parts := strings.Split(name, "/")
+	if len(parts) != 2 {
+		fmt.Println(styleError.Render("❌ Invalid password name format. Use 'source/username'."))
+		return
+	}
+
+	source, username := parts[0], parts[1]
+
+	result, err := db.Exec("DELETE FROM passwords WHERE source = ? AND username = ?", source, username)
+	if err != nil {
+		fmt.Println(styleError.Render("❌ Error deleting password: " + err.Error()))
+		return
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		fmt.Println(styleError.Render(fmt.Sprintf("❌ No password found for %s/%s", source, username)))
+	} else {
+		fmt.Println(styleSuccess.Render(fmt.Sprintf("✅ Password for %s/%s deleted successfully", source, username)))
+	}
+}
+
+func updatePassword(name string) {
+	parts := strings.Split(name, "/")
+	if len(parts) != 2 {
+		fmt.Println(styleError.Render("❌ Invalid password name format. Use 'source/username'."))
+		return
+	}
+
+	source, username := parts[0], parts[1]
+
+	// Check if the password exists
+	var exists bool
+	err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM passwords WHERE source = ? AND username = ?)", source, username).Scan(&exists)
+	if err != nil {
+		fmt.Println(styleError.Render("❌ Error checking password existence: " + err.Error()))
+		return
+	}
+
+	if !exists {
+		fmt.Println(styleError.Render(fmt.Sprintf("❌ No password found for %s/%s", source, username)))
+		return
+	}
+
+	// Generate a new password
+	newPassword := generateNewPassword()
+
+	// Update the password in the database
+	_, err = db.Exec("UPDATE passwords SET password = ? WHERE source = ? AND username = ?", newPassword, source, username)
+	if err != nil {
+		fmt.Println(styleError.Render("❌ Error updating password: " + err.Error()))
+		return
+	}
+
+	fmt.Println(styleSuccess.Render(fmt.Sprintf("✅ Password for %s/%s updated successfully", source, username)))
+	fmt.Println(stylePassword.Render("New password: " + newPassword))
+
+	// Copy the new password to clipboard
+	err = clipboard.WriteAll(newPassword)
+	if err != nil {
+		fmt.Println(styleError.Render("❌ Failed to copy new password to clipboard: " + err.Error()))
+	} else {
+		fmt.Println(styleSuccess.Render("📋 New password copied to clipboard. Will clear in 45 seconds."))
+
+		go func() {
+			time.Sleep(45 * time.Second)
+			err := clipboard.WriteAll("")
+			if err != nil {
+				fmt.Println(styleError.Render("❌ Failed to clear clipboard: " + err.Error()))
+			}
+		}()
+	}
+}
+
+func generateNewPassword() string {
+	charset := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-=[]{}|;:,.<>?"
+	password := make([]byte, 16)
+	for i := range password {
+		password[i] = charset[rand.Intn(len(charset))]
+	}
+	return string(password)
+}
+
 func main() {
 	fmt.Println(styleHeading.Render("🔑 Password Manager CLI"))
 	if err := rootCmd.Execute(); err != nil {
@@ -730,6 +832,8 @@ func init() {
 	rootCmd.AddCommand(searchCmd)
 	rootCmd.AddCommand(getCmd)
 	rootCmd.AddCommand(importCmd)
+	rootCmd.AddCommand(deleteCmd)
+	rootCmd.AddCommand(updateCmd)
 }
 
 var docStyle = lipgloss.NewStyle().Margin(1, 2)
