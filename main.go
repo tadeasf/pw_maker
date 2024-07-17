@@ -1,10 +1,10 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"math/rand"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -13,12 +13,14 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/spf13/cobra"
 )
 
 var (
 	includeSpecial bool
 	length         int
+	db             *sql.DB
 )
 
 var (
@@ -45,6 +47,32 @@ var (
 func init() {
 	rootCmd.Flags().BoolVarP(&includeSpecial, "special", "s", false, "Include special characters")
 	rootCmd.Flags().IntVarP(&length, "length", "l", 12, "Password length")
+
+	var err error
+	db, err = sql.Open("sqlite3", "./passwords.db")
+	if err != nil {
+		fmt.Println(styleError.Render("Error opening database: " + err.Error()))
+		os.Exit(1)
+	}
+
+	createTable()
+}
+
+func createTable() {
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS passwords (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			source TEXT,
+			username TEXT,
+			password TEXT,
+			url TEXT,
+			UNIQUE(source, username)
+		)
+	`)
+	if err != nil {
+		fmt.Println(styleError.Render("Error creating table: " + err.Error()))
+		os.Exit(1)
+	}
 }
 
 var rootCmd = &cobra.Command{
@@ -123,6 +151,7 @@ func generatePassword() {
 
 func showPasswords() {
 	passwords := getPasswordEntries()
+	fmt.Printf("Debug: Number of passwords found: %d\n", len(passwords))
 	if len(passwords) == 0 {
 		fmt.Println(stylePrompt.Render("No passwords found in the store."))
 		return
@@ -139,46 +168,26 @@ type PasswordEntry struct {
 }
 
 func getPasswordEntries() []PasswordEntry {
-	cmd := exec.Command("pass", "ls")
-	output, err := cmd.CombinedOutput()
+	rows, err := db.Query("SELECT source, username FROM passwords")
 	if err != nil {
-		fmt.Printf("Error fetching passwords: %v\nOutput: %s\n", err, string(output))
+		fmt.Println(styleError.Render("Error fetching passwords: " + err.Error()))
 		return nil
 	}
-
-	// Debug: Print raw output
-	fmt.Println("Debug: Raw output from 'pass ls':")
-	fmt.Println(string(output))
+	defer rows.Close()
 
 	var entries []PasswordEntry
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-
-	// Debug: Print number of lines
-	fmt.Printf("Debug: Number of lines: %d\n", len(lines))
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		// Debug: Print each line
-		fmt.Printf("Debug: Processing line: '%s'\n", line)
-
-		if strings.HasPrefix(line, "Password Store") || strings.HasSuffix(line, "/") {
+	for rows.Next() {
+		var entry PasswordEntry
+		err := rows.Scan(&entry.Source, &entry.Username)
+		if err != nil {
+			fmt.Println(styleError.Render("Error scanning row: " + err.Error()))
 			continue
 		}
-		parts := strings.SplitN(line, "/", 2)
-		if len(parts) == 2 {
-			entries = append(entries, PasswordEntry{Source: parts[0], Username: strings.TrimSuffix(parts[1], ".gpg")})
-		} else {
-			// Debug: Print lines that don't match expected format
-			fmt.Printf("Debug: Skipping line (unexpected format): '%s'\n", line)
-		}
+		entries = append(entries, entry)
 	}
-
-	// Debug: Print number of entries found
-	fmt.Printf("Debug: Number of entries found: %d\n", len(entries))
 
 	return entries
 }
-
 func searchPasswords() {
 	entries := getPasswordEntries()
 	if len(entries) == 0 {
@@ -187,9 +196,15 @@ func searchPasswords() {
 	}
 
 	p := tea.NewProgram(initialSearchModel(entries), tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
+	m, err := p.Run()
+	if err != nil {
 		fmt.Println("Error running program:", err)
 		os.Exit(1)
+	}
+
+	// Handle the selected item
+	if m, ok := m.(searchModel); ok && m.selectedItem != "" {
+		getPassword(m.selectedItem)
 	}
 }
 
@@ -204,11 +219,22 @@ func (i listItem) FilterValue() string {
 	return i.title
 }
 
-// Update the searchModel struct to implement tea.Model
+// Update the searchModel struct
 type searchModel struct {
-	entries     []PasswordEntry
-	searchInput textinput.Model
-	list        list.Model
+	entries      []PasswordEntry
+	searchInput  textinput.Model
+	list         list.Model
+	selectedItem string
+}
+
+// Add this method to implement the tea.Model interface
+func (m searchModel) View() string {
+	var b strings.Builder
+
+	b.WriteString(m.searchInput.View() + "\n\n")
+	b.WriteString(m.list.View())
+
+	return docStyle.Render(b.String())
 }
 
 // Add the Init method to implement tea.Model interface
@@ -216,6 +242,7 @@ func (m searchModel) Init() tea.Cmd {
 	return textinput.Blink
 }
 
+// Update the initialSearchModel function
 func initialSearchModel(entries []PasswordEntry) searchModel {
 	m := searchModel{
 		entries: entries,
@@ -225,7 +252,8 @@ func initialSearchModel(entries []PasswordEntry) searchModel {
 	m.searchInput.Placeholder = "Search passwords..."
 	m.searchInput.Focus()
 
-	m.list = list.New(convertToListItems(entries), list.NewDefaultDelegate(), 0, 0)
+	items := convertToListItems(entries)
+	m.list = list.New(items, list.NewDefaultDelegate(), 0, 0)
 	m.list.Title = "Passwords"
 
 	return m
@@ -243,6 +271,7 @@ func convertToListItems(entries []PasswordEntry) []list.Item {
 	return listItems
 }
 
+// Update the Update method of searchModel
 func (m searchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -267,7 +296,7 @@ func (m searchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			selectedItem := m.list.SelectedItem()
 			if selectedItem != nil {
-				getPassword(selectedItem.(listItem).title)
+				m.selectedItem = selectedItem.(listItem).title
 				return m, tea.Quit
 			}
 		case "tab":
@@ -292,14 +321,6 @@ func (m searchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m searchModel) View() string {
-	return docStyle.Render(fmt.Sprintf(
-		"%s\n\n%s",
-		m.searchInput.View(),
-		m.list.View(),
-	))
-}
-
 func getPassword(name string) {
 	parts := strings.Split(name, "/")
 	if len(parts) != 2 {
@@ -308,20 +329,16 @@ func getPassword(name string) {
 	}
 
 	source, username := parts[0], parts[1]
-	cmd := exec.Command("pass", "show", fmt.Sprintf("%s/%s", source, username))
-	output, err := cmd.CombinedOutput()
+	var password string
+	err := db.QueryRow("SELECT password FROM passwords WHERE source = ? AND username = ?", source, username).Scan(&password)
 	if err != nil {
-		fmt.Printf("Error fetching password for %s/%s: %v\nOutput: %s\n", source, username, err, string(output))
+		if err == sql.ErrNoRows {
+			fmt.Println(styleError.Render("❌ No password found for " + name))
+		} else {
+			fmt.Println(styleError.Render("❌ Error fetching password: " + err.Error()))
+		}
 		return
 	}
-
-	// Extract the password from the first line of the output
-	lines := strings.Split(string(output), "\n")
-	if len(lines) == 0 {
-		fmt.Println(styleError.Render("❌ No password found for " + name))
-		return
-	}
-	password := strings.TrimSpace(lines[0])
 
 	err = clipboard.WriteAll(password)
 	if err != nil {
@@ -483,19 +500,11 @@ func storeInPass(password string) {
 		return
 	}
 
-	passEntry := fmt.Sprintf("%s\nusername: %s\nsource: %s\nurl: %s", password, username, source, url)
-	passName := fmt.Sprintf("%s/%s", source, username)
-
-	cmd := exec.Command("pass", "insert", "-m", passName)
-	cmd.Stdin = strings.NewReader(passEntry)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	err = cmd.Run()
+	_, err = db.Exec("INSERT INTO passwords (source, username, password, url) VALUES (?, ?, ?, ?)", source, username, password, url)
 	if err != nil {
-		fmt.Println(styleError.Render("❌ Failed to store password in Pass: " + err.Error()))
+		fmt.Println(styleError.Render("❌ Failed to store password in database: " + err.Error()))
 	} else {
-		fmt.Println(styleSuccess.Render("✅ Password stored in Pass successfully."))
+		fmt.Println(styleSuccess.Render("✅ Password stored in database successfully."))
 	}
 }
 
