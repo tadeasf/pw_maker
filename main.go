@@ -212,15 +212,21 @@ func searchPasswords() {
 
 type listItem struct {
 	title    string
-	desc     string
 	source   string
 	username string
 	url      string
 }
 
-// Implement the FilterValue method for the list.Item interface
+func (i listItem) Title() string {
+	return fmt.Sprintf("Source: %s | Username: %s", i.source, i.username)
+}
+
+func (i listItem) Description() string {
+	return fmt.Sprintf("URL: %s", i.url)
+}
+
 func (i listItem) FilterValue() string {
-	return i.title + i.source + i.username + i.url
+	return i.source + i.username + i.url
 }
 
 type searchModel struct {
@@ -247,13 +253,23 @@ func initialSearchModel(entries []PasswordEntry) searchModel {
 	m.searchInput.Focus()
 
 	items := convertToListItems(entries)
+
 	delegate := list.NewDefaultDelegate()
-	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.Foreground(lipgloss.Color("#FF00FF"))
-	delegate.Styles.SelectedDesc = delegate.Styles.SelectedDesc.Foreground(lipgloss.Color("#FF00FF"))
+	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.
+		Foreground(lipgloss.Color("#FF00FF")).
+		BorderLeft(true).
+		BorderStyle(lipgloss.NormalBorder())
+	delegate.Styles.SelectedDesc = delegate.Styles.SelectedDesc.
+		Foreground(lipgloss.Color("#FF00FF")).
+		BorderLeft(true).
+		BorderStyle(lipgloss.NormalBorder())
+
+	delegate.SetHeight(3) // Increase height to accommodate two lines
 
 	m.list = list.New(items, delegate, 0, 0)
 	m.list.Title = "Passwords"
 	m.list.SetStatusBarItemName("password", "passwords")
+	m.list.SetSize(100, 20) // Adjust width and height as needed
 
 	m.list.Styles.Title = m.list.Styles.Title.
 		Background(lipgloss.Color("#25A065")).
@@ -266,8 +282,6 @@ func convertToListItems(entries []PasswordEntry) []list.Item {
 	items := make([]list.Item, len(entries))
 	for i, entry := range entries {
 		items[i] = listItem{
-			title:    fmt.Sprintf("%s / %s", entry.Source, entry.Username),
-			desc:     entry.URL,
 			source:   entry.Source,
 			username: entry.Username,
 			url:      entry.URL,
@@ -366,8 +380,6 @@ func (m *searchModel) filterList() {
 			strings.Contains(strings.ToLower(entry.Username), pattern) ||
 			strings.Contains(strings.ToLower(entry.URL), pattern) {
 			filtered = append(filtered, listItem{
-				title:    fmt.Sprintf("%s / %s", entry.Source, entry.Username),
-				desc:     entry.URL,
 				source:   entry.Source,
 				username: entry.Username,
 				url:      entry.URL,
