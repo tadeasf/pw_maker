@@ -129,7 +129,7 @@ func showPasswords() {
 	}
 	fmt.Println(styleHeading.Render("Available passwords:"))
 	for _, entry := range passwords {
-		fmt.Printf("%s/%s\n", entry.Source, entry.Username)
+		fmt.Printf("%s %s/%s\n", stylePrompt.Render("•"), entry.Source, entry.Username)
 	}
 }
 
@@ -139,7 +139,7 @@ type PasswordEntry struct {
 }
 
 func getPasswordEntries() []PasswordEntry {
-	cmd := exec.Command("pass", "ls")
+	cmd := exec.Command("pass", "ls", "--flat")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		fmt.Printf("Error fetching passwords: %v\nOutput: %s\n", err, string(output))
@@ -147,13 +147,11 @@ func getPasswordEntries() []PasswordEntry {
 	}
 
 	var entries []PasswordEntry
-	lines := strings.Split(string(output), "\n")
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	for _, line := range lines {
-		if strings.HasPrefix(line, "└── ") || strings.HasPrefix(line, "├── ") {
-			parts := strings.Split(strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(line, "└── "), "├── ")), "/")
-			if len(parts) == 2 {
-				entries = append(entries, PasswordEntry{Source: parts[0], Username: parts[1]})
-			}
+		parts := strings.SplitN(line, "/", 2)
+		if len(parts) == 2 {
+			entries = append(entries, PasswordEntry{Source: parts[0], Username: parts[1]})
 		}
 	}
 	return entries
