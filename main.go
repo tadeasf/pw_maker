@@ -22,22 +22,22 @@ var (
 
 var (
 	styleHeading = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FAFAFA")).
-			Background(lipgloss.Color("#7D56F4")).
+			Foreground(lipgloss.Color("#CDD6F4")).
+			Background(lipgloss.Color("#1E1E2E")).
 			Padding(0, 1)
 
 	styleSuccess = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#04B575"))
+			Foreground(lipgloss.Color("#A6E3A1"))
 
 	styleError = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FF0000"))
+			Foreground(lipgloss.Color("#F38BA8"))
 
 	stylePrompt = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#04B575"))
+			Foreground(lipgloss.Color("#A6E3A1"))
 
 	stylePassword = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FAFAFA")).
-			Background(lipgloss.Color("#7D56F4")).
+			Foreground(lipgloss.Color("#CDD6F4")).
+			Background(lipgloss.Color("#1E1E2E")).
 			Padding(0, 1)
 )
 
@@ -60,10 +60,10 @@ func generatePassword() {
 		charset += "!@#$%^&*()_+-=[]{}|;:,.<>?"
 	}
 
-	rand.Seed(time.Now().UnixNano())
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	password := make([]byte, length)
 	for i := range password {
-		password[i] = charset[rand.Intn(len(charset))]
+		password[i] = charset[rng.Intn(len(charset))]
 	}
 
 	fmt.Println(styleHeading.Render("🔐 Generated Password"))
@@ -82,12 +82,14 @@ func generatePassword() {
 type model struct {
 	textInputs []textinput.Model
 	password   string
+	focusIndex int
 }
 
 func initialModel(password string) model {
 	m := model{
 		textInputs: make([]textinput.Model, 2),
 		password:   password,
+		focusIndex: 0,
 	}
 
 	var t textinput.Model
@@ -119,16 +121,36 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c", "esc":
 			return m, tea.Quit
+		case "tab", "shift+tab", "enter", "up", "down":
+			s := msg.String()
 
-		case "enter":
-			if m.textInputs[1].Value() != "" {
+			if s == "enter" && m.focusIndex == len(m.textInputs) {
 				return m, tea.Quit
 			}
-			return m, nil
-		}
 
-	case error:
-		return m, nil
+			if s == "up" || s == "shift+tab" {
+				m.focusIndex--
+			} else {
+				m.focusIndex++
+			}
+
+			if m.focusIndex > len(m.textInputs) {
+				m.focusIndex = 0
+			} else if m.focusIndex < 0 {
+				m.focusIndex = len(m.textInputs)
+			}
+
+			cmds := make([]tea.Cmd, len(m.textInputs))
+			for i := 0; i <= len(m.textInputs)-1; i++ {
+				if i == m.focusIndex {
+					cmds[i] = m.textInputs[i].Focus()
+					continue
+				}
+				m.textInputs[i].Blur()
+			}
+
+			return m, tea.Batch(cmds...)
+		}
 	}
 
 	cmd := m.updateInputs(msg)
@@ -147,18 +169,30 @@ func (m *model) updateInputs(msg tea.Msg) tea.Cmd {
 }
 
 func (m model) View() string {
-	return fmt.Sprintf(
-		"%s\n\n%s\n\n%s\n\n%s\n\n",
-		styleHeading.Render("Store Password in Pass"),
-		m.textInputs[0].View(),
-		m.textInputs[1].View(),
-		"(press enter to finish)",
-	) + "\n"
+	var b strings.Builder
+
+	b.WriteString(styleHeading.Render("Store Password in Pass"))
+	b.WriteString("\n\n")
+
+	for i := range m.textInputs {
+		b.WriteString(m.textInputs[i].View())
+		b.WriteString("\n")
+	}
+
+	button := "[ Store ]"
+	if m.focusIndex == len(m.textInputs) {
+		button = stylePassword.Render(button)
+	}
+	fmt.Fprintf(&b, "\n%s\n", button)
+
+	b.WriteString("\n(tab to navigate • enter to select)")
+
+	return b.String()
 }
 
 func storeInPass(password string) {
 	p := tea.NewProgram(initialModel(password))
-	m, err := p.StartReturningModel()
+	m, err := p.Run()
 	if err != nil {
 		fmt.Println("Error running program:", err)
 		os.Exit(1)
