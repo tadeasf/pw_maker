@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/rand"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -113,7 +114,9 @@ func createTable() {
 			username TEXT,
 			password TEXT,
 			url TEXT,
-			UNIQUE(source, username)
+			created_at DATETIME,
+			updated_at DATETIME,
+			UNIQUE(source, username, url)
 		)
 	`)
 	if err != nil {
@@ -267,13 +270,15 @@ func showPasswords() {
 }
 
 type PasswordEntry struct {
-	Source   string
-	Username string
-	URL      string
+	Source    string
+	Username  string
+	URL       string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 func getPasswordEntries() []PasswordEntry {
-	rows, err := db.Query("SELECT source, username, url FROM passwords")
+	rows, err := db.Query("SELECT source, username, url, created_at, updated_at FROM passwords")
 	if err != nil {
 		fmt.Println(styleError.Render("Error fetching passwords: " + err.Error()))
 		return nil
@@ -283,7 +288,7 @@ func getPasswordEntries() []PasswordEntry {
 	var entries []PasswordEntry
 	for rows.Next() {
 		var entry PasswordEntry
-		err := rows.Scan(&entry.Source, &entry.Username, &entry.URL)
+		err := rows.Scan(&entry.Source, &entry.Username, &entry.URL, &entry.CreatedAt, &entry.UpdatedAt)
 		if err != nil {
 			fmt.Println(styleError.Render("Error scanning row: " + err.Error()))
 			continue
@@ -316,9 +321,11 @@ func searchPasswords() {
 }
 
 type listItem struct {
-	source   string
-	username string
-	url      string
+	source    string
+	username  string
+	url       string
+	createdAt time.Time
+	updatedAt time.Time
 }
 
 func (i listItem) Title() string {
@@ -326,7 +333,7 @@ func (i listItem) Title() string {
 }
 
 func (i listItem) Description() string {
-	return fmt.Sprintf("URL: %s", i.url)
+	return fmt.Sprintf("URL: %s | Created: %s | Updated: %s", i.url, i.createdAt.Format("2006-01-02 15:04:05"), i.updatedAt.Format("2006-01-02 15:04:05"))
 }
 
 func (i listItem) FilterValue() string {
@@ -386,9 +393,11 @@ func convertToListItems(entries []PasswordEntry) []list.Item {
 	items := make([]list.Item, len(entries))
 	for i, entry := range entries {
 		items[i] = listItem{
-			source:   entry.Source,
-			username: entry.Username,
-			url:      entry.URL,
+			source:    entry.Source,
+			username:  entry.Username,
+			url:       entry.URL,
+			createdAt: entry.CreatedAt,
+			updatedAt: entry.UpdatedAt,
 		}
 	}
 	return items
@@ -484,9 +493,11 @@ func (m *searchModel) filterList() {
 			strings.Contains(strings.ToLower(entry.Username), pattern) ||
 			strings.Contains(strings.ToLower(entry.URL), pattern) {
 			filtered = append(filtered, listItem{
-				source:   entry.Source,
-				username: entry.Username,
-				url:      entry.URL,
+				source:    entry.Source,
+				username:  entry.Username,
+				url:       entry.URL,
+				createdAt: entry.CreatedAt,
+				updatedAt: entry.UpdatedAt,
 			})
 		}
 	}
@@ -661,18 +672,21 @@ func storeInPass(password string) {
 	finalModel := m.(storePasswordModel)
 	username := finalModel.textInputs[0].Value()
 	source := finalModel.textInputs[1].Value()
-	url := finalModel.textInputs[2].Value()
+	url := beautifyURL(finalModel.textInputs[2].Value())
 
 	if username == "" || source == "" {
 		fmt.Println(stylePrompt.Render("👋 Exiting without storing password."))
 		return
 	}
 
-	_, err = db.Exec("INSERT INTO passwords (source, username, password, url) VALUES (?, ?, ?, ?)", source, username, password, url)
+	_, err = db.Exec(`
+		INSERT OR REPLACE INTO passwords (source, username, password, url, created_at, updated_at)
+		VALUES (?, ?, ?, ?, COALESCE((SELECT created_at FROM passwords WHERE source = ? AND username = ? AND url = ?), CURRENT_TIMESTAMP), CURRENT_TIMESTAMP)
+	`, source, username, password, url, source, username, url)
 	if err != nil {
 		fmt.Println(styleError.Render("❌ Failed to store password in database: " + err.Error()))
 	} else {
-		fmt.Println(styleSuccess.Render("✅ Password stored in database successfully."))
+		fmt.Println(styleSuccess.Render("✅ Password stored/updated in database successfully."))
 	}
 }
 
@@ -704,6 +718,20 @@ func copyPasswordToClipboard(source, username string) {
 	}
 }
 
+func beautifyURL(rawURL string) string {
+	if rawURL == "" {
+		return ""
+	}
+	if !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") {
+		rawURL = "https://" + rawURL
+	}
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	return parsedURL.String()
+}
+
 func importPasswords(filename string) {
 	file, err := os.Open(filename)
 	if err != nil {
@@ -719,18 +747,44 @@ func importPasswords(filename string) {
 		return
 	}
 
-	// Skip the header row
+	tx, err := db.Begin()
+	if err != nil {
+		fmt.Println(styleError.Render("❌ Error starting transaction: " + err.Error()))
+		return
+	}
+
+	stmt, err := tx.Prepare(`
+		INSERT OR REPLACE INTO passwords (source, username, password, url, created_at, updated_at)
+		VALUES (?, ?, ?, ?, COALESCE((SELECT created_at FROM passwords WHERE source = ? AND username = ? AND url = ?), CURRENT_TIMESTAMP), CURRENT_TIMESTAMP)
+	`)
+	if err != nil {
+		fmt.Println(styleError.Render("❌ Error preparing statement: " + err.Error()))
+		if rollbackErr := tx.Rollback(); rollbackErr != nil {
+			fmt.Println(styleError.Render("❌ Error rolling back transaction: " + rollbackErr.Error()))
+		}
+		return
+	}
+	defer stmt.Close()
+
 	for _, record := range records[1:] {
 		source := record[0]
-		url := record[1]
+		url := beautifyURL(record[1])
 		username := record[2]
 		password := record[3]
 
-		_, err := db.Exec("INSERT OR REPLACE INTO passwords (source, username, password, url) VALUES (?, ?, ?, ?)", source, username, password, url)
+		_, err := stmt.Exec(source, username, password, url, source, username, url)
 		if err != nil {
 			fmt.Printf(styleError.Render("❌ Error importing password for %s: %s\n"), source, err.Error())
 		} else {
-			fmt.Printf(styleSuccess.Render("✅ Imported password for %s\n"), source)
+			fmt.Printf(styleSuccess.Render("✅ Imported/Updated password for %s\n"), source)
+		}
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		fmt.Println(styleError.Render("❌ Error committing transaction: " + err.Error()))
+		if rollbackErr := tx.Rollback(); rollbackErr != nil {
+			fmt.Println(styleError.Render("❌ Error rolling back transaction: " + rollbackErr.Error()))
 		}
 	}
 }
@@ -784,7 +838,7 @@ func updatePassword(name string) {
 	newPassword := generateNewPassword()
 
 	// Update the password in the database
-	_, err = db.Exec("UPDATE passwords SET password = ? WHERE source = ? AND username = ?", newPassword, source, username)
+	_, err = db.Exec("UPDATE passwords SET password = ?, updated_at = CURRENT_TIMESTAMP WHERE source = ? AND username = ?", newPassword, source, username)
 	if err != nil {
 		fmt.Println(styleError.Render("❌ Error updating password: " + err.Error()))
 		return
