@@ -297,6 +297,121 @@ func (m *model) filterPasswords(query string) []list.Item {
 	return filtered
 }
 
+// Add this new type for password storage
+// Add this new type for password storage
+type storePasswordModel struct {
+	textInputs []textinput.Model
+	password   string
+	focusIndex int
+}
+
+// Add this new function to initialize the store password model
+func initialStorePasswordModel(password string) storePasswordModel {
+	m := storePasswordModel{
+		textInputs: make([]textinput.Model, 3),
+		password:   password,
+		focusIndex: 0,
+	}
+
+	var t textinput.Model
+	for i := range m.textInputs {
+		t = textinput.New()
+		t.CharLimit = 100
+
+		switch i {
+		case 0:
+			t.Placeholder = "Enter username"
+			t.Focus()
+		case 1:
+			t.Placeholder = "Enter source (e.g., website name, database name)"
+		case 2:
+			t.Placeholder = "Enter URL"
+		}
+
+		m.textInputs[i] = t
+	}
+
+	return m
+}
+
+// Add these methods for the new model
+func (m storePasswordModel) Init() tea.Cmd {
+	return textinput.Blink
+}
+
+func (m storePasswordModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "esc":
+			return m, tea.Quit
+		case "tab", "shift+tab", "enter", "up", "down":
+			s := msg.String()
+
+			if s == "enter" && m.focusIndex == len(m.textInputs) {
+				return m, tea.Quit
+			}
+
+			if s == "up" || s == "shift+tab" {
+				m.focusIndex--
+			} else {
+				m.focusIndex++
+			}
+
+			if m.focusIndex > len(m.textInputs) {
+				m.focusIndex = 0
+			} else if m.focusIndex < 0 {
+				m.focusIndex = len(m.textInputs)
+			}
+
+			cmds := make([]tea.Cmd, len(m.textInputs))
+			for i := 0; i <= len(m.textInputs)-1; i++ {
+				if i == m.focusIndex {
+					cmds[i] = m.textInputs[i].Focus()
+					continue
+				}
+				m.textInputs[i].Blur()
+			}
+
+			return m, tea.Batch(cmds...)
+		}
+	}
+
+	cmd := m.updateInputs(msg)
+
+	return m, cmd
+}
+func (m *storePasswordModel) updateInputs(msg tea.Msg) tea.Cmd {
+	cmds := make([]tea.Cmd, len(m.textInputs))
+
+	for i := range m.textInputs {
+		m.textInputs[i], cmds[i] = m.textInputs[i].Update(msg)
+	}
+
+	return tea.Batch(cmds...)
+}
+
+func (m storePasswordModel) View() string {
+	var b strings.Builder
+
+	for i := range m.textInputs {
+		b.WriteString(m.textInputs[i].View())
+		if i < len(m.textInputs)-1 {
+			b.WriteRune('\n')
+		}
+	}
+
+	button := "\n[ Store ]"
+	if m.focusIndex == len(m.textInputs) {
+		button = "\n[ " + styleSuccess.Render("Store") + " ]"
+	}
+	b.WriteString(button)
+
+	return b.String()
+}
+
+// Modify the storeInPass function
+// Modify the storeInPass function
 func storeInPass(password string) {
 	fmt.Println(stylePrompt.Render("Do you want to store this password? (y/n)"))
 	var response string
@@ -311,14 +426,14 @@ func storeInPass(password string) {
 		return
 	}
 
-	p := tea.NewProgram(initialModel(password))
+	p := tea.NewProgram(initialStorePasswordModel(password))
 	m, err := p.Run()
 	if err != nil {
 		fmt.Println("Error running program:", err)
 		os.Exit(1)
 	}
 
-	finalModel := m.(model)
+	finalModel := m.(storePasswordModel)
 	username := finalModel.textInputs[0].Value()
 	source := finalModel.textInputs[1].Value()
 	url := finalModel.textInputs[2].Value()
