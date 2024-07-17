@@ -139,7 +139,7 @@ type PasswordEntry struct {
 }
 
 func getPasswordEntries() []PasswordEntry {
-	cmd := exec.Command("pass", "ls", "--flat")
+	cmd := exec.Command("pass", "ls")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		fmt.Printf("Error fetching passwords: %v\nOutput: %s\n", err, string(output))
@@ -149,14 +149,17 @@ func getPasswordEntries() []PasswordEntry {
 	var entries []PasswordEntry
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Password Store") || strings.HasSuffix(line, "/") {
+			continue
+		}
 		parts := strings.SplitN(line, "/", 2)
 		if len(parts) == 2 {
-			entries = append(entries, PasswordEntry{Source: parts[0], Username: parts[1]})
+			entries = append(entries, PasswordEntry{Source: parts[0], Username: strings.TrimSuffix(parts[1], ".gpg")})
 		}
 	}
 	return entries
 }
-
 func searchPasswords() {
 	entries := getPasswordEntries()
 	if len(entries) == 0 {
