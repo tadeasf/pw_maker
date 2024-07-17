@@ -146,20 +146,39 @@ func getPasswordEntries() []PasswordEntry {
 		return nil
 	}
 
+	// Debug: Print raw output
+	fmt.Println("Debug: Raw output from 'pass ls':")
+	fmt.Println(string(output))
+
 	var entries []PasswordEntry
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+
+	// Debug: Print number of lines
+	fmt.Printf("Debug: Number of lines: %d\n", len(lines))
+
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
+		// Debug: Print each line
+		fmt.Printf("Debug: Processing line: '%s'\n", line)
+
 		if strings.HasPrefix(line, "Password Store") || strings.HasSuffix(line, "/") {
 			continue
 		}
 		parts := strings.SplitN(line, "/", 2)
 		if len(parts) == 2 {
 			entries = append(entries, PasswordEntry{Source: parts[0], Username: strings.TrimSuffix(parts[1], ".gpg")})
+		} else {
+			// Debug: Print lines that don't match expected format
+			fmt.Printf("Debug: Skipping line (unexpected format): '%s'\n", line)
 		}
 	}
+
+	// Debug: Print number of entries found
+	fmt.Printf("Debug: Number of entries found: %d\n", len(entries))
+
 	return entries
 }
+
 func searchPasswords() {
 	entries := getPasswordEntries()
 	if len(entries) == 0 {
