@@ -56,6 +56,22 @@ var rootCmd = &cobra.Command{
 	},
 }
 
+var showCmd = &cobra.Command{
+	Use:   "show",
+	Short: "Show all passwords",
+	Run: func(cmd *cobra.Command, args []string) {
+		showPasswords()
+	},
+}
+
+var searchCmd = &cobra.Command{
+	Use:   "search",
+	Short: "Search passwords",
+	Run: func(cmd *cobra.Command, args []string) {
+		searchPasswords()
+	},
+}
+
 func generatePassword() {
 	charset := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	if includeSpecial {
@@ -79,6 +95,21 @@ func generatePassword() {
 	}
 
 	storeInPass(string(password))
+}
+
+func showPasswords() {
+	passwords := getPasswords()
+	for _, p := range passwords {
+		fmt.Printf("Name: %s, Username: %s, Source: %s, URL: %s, Password: %s\n", p.name, p.username, p.source, p.url, p.password)
+	}
+}
+
+func searchPasswords() {
+	p := tea.NewProgram(initialModel(""), tea.WithAltScreen())
+	if _, err := p.Run(); err != nil {
+		fmt.Println("Error running program:", err)
+		os.Exit(1)
+	}
 }
 
 type passwordItem struct {
@@ -139,7 +170,7 @@ func initialModel(password string) model {
 }
 
 func getPasswords() []passwordItem {
-	cmd := exec.Command("pass", "ls", "--flat")
+	cmd := exec.Command("pass", "grep", "-l", ".")
 	output, err := cmd.CombinedOutput() // Capture both stdout and stderr
 	if err != nil {
 		fmt.Printf("Error fetching passwords: %v\nOutput: %s\n", err, string(output))
@@ -307,20 +338,9 @@ func main() {
 	}
 }
 
-var listCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List and search passwords",
-	Run: func(cmd *cobra.Command, args []string) {
-		p := tea.NewProgram(initialModel(""), tea.WithAltScreen())
-		if _, err := p.Run(); err != nil {
-			fmt.Println("Error running program:", err)
-			os.Exit(1)
-		}
-	},
-}
-
 func init() {
-	rootCmd.AddCommand(listCmd)
+	rootCmd.AddCommand(showCmd)
+	rootCmd.AddCommand(searchCmd)
 }
 
 var docStyle = lipgloss.NewStyle().Margin(1, 2)
