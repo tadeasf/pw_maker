@@ -3,9 +3,11 @@ package main
 import (
 	"database/sql"
 	"encoding/csv"
+	"encoding/hex"
 	"fmt"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -16,6 +18,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/spf13/cobra"
+	"github.com/zalando/go-keyring"
 )
 
 // TODO: refactor everything
@@ -26,6 +29,8 @@ var (
 	includeSpecial bool
 	length         int
 	db             *sql.DB
+	dbPath         string
+	encryptionKey  string
 )
 
 var (
@@ -53,8 +58,33 @@ func init() {
 	rootCmd.Flags().BoolVarP(&includeSpecial, "special", "s", false, "Include special characters")
 	rootCmd.Flags().IntVarP(&length, "length", "l", 12, "Password length")
 
-	var err error
-	db, err = sql.Open("sqlite3", "./passwords.db")
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Println(styleError.Render("Error getting user home directory: " + err.Error()))
+		os.Exit(1)
+	}
+
+	dbPath = filepath.Join(homeDir, ".passgen", "passwords.db")
+	err = os.MkdirAll(filepath.Dir(dbPath), 0700)
+	if err != nil {
+		fmt.Println(styleError.Render("Error creating directory: " + err.Error()))
+		os.Exit(1)
+	}
+
+	// Retrieve encryption key from system keyring
+	encryptionKey, err = keyring.Get("passgen", "db_encryption_key")
+	if err != nil {
+		// Generate a new encryption key if not found
+		encryptionKey = generateEncryptionKey()
+		err = keyring.Set("passgen", "db_encryption_key", encryptionKey)
+		if err != nil {
+			fmt.Println(styleError.Render("Error storing encryption key: " + err.Error()))
+			os.Exit(1)
+		}
+	}
+
+	// Open the encrypted database
+	db, err = sql.Open("sqlite3", fmt.Sprintf("%s?_pragma_key=%s", dbPath, encryptionKey))
 	if err != nil {
 		fmt.Println(styleError.Render("Error opening database: " + err.Error()))
 		os.Exit(1)
@@ -63,8 +93,22 @@ func init() {
 	createTable()
 }
 
+func generateEncryptionKey() string {
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	key := make([]byte, 32)
+	_, err := rng.Read(key)
+	if err != nil {
+		fmt.Println(styleError.Render("Error generating encryption key: " + err.Error()))
+		os.Exit(1)
+	}
+	return hex.EncodeToString(key)
+}
+
 func createTable() {
 	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS version (
+			version INTEGER PRIMARY KEY
+		);
 		CREATE TABLE IF NOT EXISTS passwords (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			source TEXT,
@@ -75,9 +119,36 @@ func createTable() {
 		)
 	`)
 	if err != nil {
-		fmt.Println(styleError.Render("Error creating table: " + err.Error()))
+		fmt.Println(styleError.Render("Error creating tables: " + err.Error()))
 		os.Exit(1)
 	}
+
+	// Check and update database version
+	checkAndMigrateDatabase()
+}
+
+func checkAndMigrateDatabase() {
+	var version int
+	err := db.QueryRow("SELECT version FROM version").Scan(&version)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			// Initialize version
+			_, err = db.Exec("INSERT INTO version (version) VALUES (1)")
+			if err != nil {
+				fmt.Println(styleError.Render("Error initializing database version: " + err.Error()))
+				os.Exit(1)
+			}
+			return
+		}
+		fmt.Println(styleError.Render("Error checking database version: " + err.Error()))
+		os.Exit(1)
+	}
+
+	// Implement migrations for future versions
+	// if version < 2 {
+	//     // Perform migration to version 2
+	//     // Update version number
+	// }
 }
 
 var rootCmd = &cobra.Command{
