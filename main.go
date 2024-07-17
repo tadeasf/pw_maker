@@ -100,8 +100,12 @@ func generatePassword() {
 
 func showPasswords() {
 	passwords := getPasswords()
+	if len(passwords) == 0 {
+		fmt.Println(stylePrompt.Render("No passwords found in the store."))
+		return
+	}
 	for _, p := range passwords {
-		fmt.Printf("Name: %s, Username: %s, Source: %s, URL: %s, Password: %s\n", p.name, p.username, p.source, p.url, p.password)
+		fmt.Printf("Name: %s, Username: %s, Source: %s, URL: %s\n", p.name, p.username, p.source, p.url)
 	}
 }
 
@@ -173,7 +177,7 @@ func initialModel(password string) model {
 
 func getPasswords() []passwordItem {
 	cmd := exec.Command("pass", "grep", "-l", ".")
-	output, err := cmd.CombinedOutput() // Capture both stdout and stderr
+	output, err := cmd.CombinedOutput()
 	if err != nil {
 		fmt.Printf("Error fetching passwords: %v\nOutput: %s\n", err, string(output))
 		return nil
@@ -183,19 +187,34 @@ func getPasswords() []passwordItem {
 	lines := strings.Split(string(output), "\n")
 	for _, line := range lines {
 		if line != "" {
-			name := strings.TrimSpace(line)
-			passwords = append(passwords, getPasswordDetails(name))
+			name := cleanPasswordName(line)
+			password := getPasswordDetails(name)
+			if password.password != "Error: Unable to retrieve" {
+				passwords = append(passwords, password)
+			}
 		}
 	}
 	return passwords
 }
 
+func cleanPasswordName(name string) string {
+	name = strings.TrimSpace(name)
+	name = strings.ReplaceAll(name, ":", "_")
+	name = strings.ReplaceAll(name, " ", "_")
+	return name
+}
+
 func getPasswordDetails(name string) passwordItem {
 	cmd := exec.Command("pass", "show", name)
-	output, err := cmd.Output()
+	fmt.Printf("Running command: %s\n", cmd.String())
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		fmt.Printf("Error fetching password details for %s: %v\n", name, err)
-		return passwordItem{name: name}
+		if strings.Contains(string(output), "is not in the password store") {
+			fmt.Printf("Password '%s' not found in the store.\n", name)
+		} else {
+			fmt.Printf("Error fetching password details for %s: %v\nOutput: %s\n", name, err, string(output))
+		}
+		return passwordItem{name: name, password: "Error: Unable to retrieve"}
 	}
 
 	lines := strings.Split(string(output), "\n")
