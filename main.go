@@ -249,12 +249,27 @@ func getPassword(name string) {
 		return
 	}
 
-	password := strings.TrimSpace(strings.Split(string(output), "\n")[0])
+	// Extract the password from the first line of the output
+	lines := strings.Split(string(output), "\n")
+	if len(lines) == 0 {
+		fmt.Println(styleError.Render("❌ No password found for " + name))
+		return
+	}
+	password := strings.TrimSpace(lines[0])
+
 	err = clipboard.WriteAll(password)
 	if err != nil {
 		fmt.Println(styleError.Render("❌ Failed to copy password to clipboard: " + err.Error()))
 	} else {
-		fmt.Println(styleSuccess.Render("📋 Password copied to clipboard."))
+		fmt.Printf(styleSuccess.Render("📋 Password for %s copied to clipboard. Will clear in 45 seconds.\n"), name)
+
+		go func() {
+			time.Sleep(45 * time.Second)
+			err := clipboard.WriteAll("")
+			if err != nil {
+				fmt.Println(styleError.Render("❌ Failed to clear clipboard: " + err.Error()))
+			}
+		}()
 	}
 }
 
