@@ -44,13 +44,7 @@ var docStyle = lipgloss.NewStyle().Margin(1, 2)
 func ConvertToListItems(entries []PasswordEntry) []list.Item {
 	items := make([]list.Item, len(entries))
 	for i, entry := range entries {
-		items[i] = ListItem{
-			Source:    entry.Source,
-			Username:  entry.Username,
-			URL:       entry.URL,
-			CreatedAt: entry.CreatedAt,
-			UpdatedAt: entry.UpdatedAt,
-		}
+		items[i] = ListItem(entry)
 	}
 	return items
 }
@@ -303,13 +297,7 @@ func (m *SearchModel) filterList() {
 		if strings.Contains(strings.ToLower(entry.Source), pattern) ||
 			strings.Contains(strings.ToLower(entry.Username), pattern) ||
 			strings.Contains(strings.ToLower(entry.URL), pattern) {
-			filtered = append(filtered, ListItem{
-				Source:    entry.Source,
-				Username:  entry.Username,
-				URL:       entry.URL,
-				CreatedAt: entry.CreatedAt,
-				UpdatedAt: entry.UpdatedAt,
-			})
+			filtered = append(filtered, ListItem(entry))
 		}
 	}
 	m.list.SetItems(filtered)
