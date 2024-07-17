@@ -62,7 +62,7 @@ func init() {
 		os.Exit(1)
 	}
 
-	dbPath = filepath.Join(homeDir, ".passgen", "passwords.db")
+	dbPath = filepath.Join(homeDir, ".fortpass", "passwords.db")
 	err = os.MkdirAll(filepath.Dir(dbPath), 0700)
 	if err != nil {
 		fmt.Println(styleError.Render("Error creating directory: " + err.Error()))
@@ -70,11 +70,11 @@ func init() {
 	}
 
 	// Retrieve encryption key from system keyring
-	encryptionKey, err = keyring.Get("passgen", "db_encryption_key")
+	encryptionKey, err = keyring.Get("fortpass", "db_encryption_key")
 	if err != nil {
 		// Generate a new encryption key if not found
 		encryptionKey = generateEncryptionKey()
-		err = keyring.Set("passgen", "db_encryption_key", encryptionKey)
+		err = keyring.Set("fortpass", "db_encryption_key", encryptionKey)
 		if err != nil {
 			fmt.Println(styleError.Render("Error storing encryption key: " + err.Error()))
 			os.Exit(1)
@@ -150,12 +150,12 @@ func checkAndMigrateDatabase() {
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "passgen",
+	Use:   "fortpass",
 	Short: "A password manager CLI tool",
 	Long: `A password manager CLI tool that allows you to generate, store, and retrieve passwords.
 
 Usage:
-  passgen [command]
+  fortpass [command]
 
 Available Commands:
   generate    Generate a new password
@@ -167,9 +167,9 @@ Available Commands:
   update      Update a specific password
 
 Flags:
-  -h, --help   help for passgen
+  -h, --help   help for fortpass
 
-Use "passgen [command] --help" for more information about a command.`,
+Use "fortpass [command] --help" for more information about a command.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		generatePassword()
 	},
