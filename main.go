@@ -208,7 +208,8 @@ func storeInPass(password string) {
 	}
 
 	passEntry := fmt.Sprintf("%s\nusername: %s\nsource: %s", password, username, source)
-	passName := fmt.Sprintf("%s/%s", source, username)
+
+	passName := fmt.Sprintf("%s/%s", source[:100], username)
 
 	cmd := exec.Command("pass", "insert", "-m", passName)
 	cmd.Stdin = strings.NewReader(passEntry)
