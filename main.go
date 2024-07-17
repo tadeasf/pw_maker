@@ -225,19 +225,10 @@ type searchModel struct {
 	searchInput  textinput.Model
 	list         list.Model
 	selectedItem string
+	focused      string // "input" or "list"
 }
 
-// Add this method to implement the tea.Model interface
-func (m searchModel) View() string {
-	var b strings.Builder
-
-	b.WriteString(m.searchInput.View() + "\n\n")
-	b.WriteString(m.list.View())
-
-	return docStyle.Render(b.String())
-}
-
-// Add the Init method to implement tea.Model interface
+// Add this method to the searchModel struct
 func (m searchModel) Init() tea.Cmd {
 	return textinput.Blink
 }
@@ -246,6 +237,7 @@ func (m searchModel) Init() tea.Cmd {
 func initialSearchModel(entries []PasswordEntry) searchModel {
 	m := searchModel{
 		entries: entries,
+		focused: "input",
 	}
 
 	m.searchInput = textinput.New()
@@ -253,7 +245,8 @@ func initialSearchModel(entries []PasswordEntry) searchModel {
 	m.searchInput.Focus()
 
 	items := convertToListItems(entries)
-	m.list = list.New(items, list.NewDefaultDelegate(), 0, 0)
+	delegate := list.NewDefaultDelegate()
+	m.list = list.New(items, delegate, 0, 0)
 	m.list.Title = "Passwords"
 
 	return m
@@ -273,52 +266,78 @@ func convertToListItems(entries []PasswordEntry) []list.Item {
 
 // Update the Update method of searchModel
 func (m searchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return m, tea.Quit
 		case "enter":
-			if m.searchInput.Focused() {
-				searchTerm := strings.ToLower(m.searchInput.Value())
-				var filtered []list.Item
-				for _, entry := range m.entries {
-					if strings.Contains(strings.ToLower(entry.Source), searchTerm) || strings.Contains(strings.ToLower(entry.Username), searchTerm) {
-						filtered = append(filtered, listItem{
-							title: fmt.Sprintf("%s/%s", entry.Source, entry.Username),
-							desc:  "Press enter to copy password",
-						})
-					}
-				}
-				m.list.SetItems(filtered)
+			if m.focused == "input" {
+				m.focused = "list"
 				m.searchInput.Blur()
 				return m, nil
 			}
-			selectedItem := m.list.SelectedItem()
-			if selectedItem != nil {
-				m.selectedItem = selectedItem.(listItem).title
-				return m, tea.Quit
+			if m.focused == "list" {
+				selectedItem := m.list.SelectedItem()
+				if selectedItem != nil {
+					m.selectedItem = selectedItem.(listItem).title
+					return m, tea.Quit
+				}
 			}
-		case "tab":
-			if m.searchInput.Focused() {
-				m.searchInput.Blur()
-			} else {
+		case "esc":
+			if m.focused == "list" {
+				m.focused = "input"
 				m.searchInput.Focus()
 			}
-		case "j", "down":
-			m.list.CursorDown()
-		case "k", "up":
-			m.list.CursorUp()
+		case "tab":
+			if m.focused == "input" {
+				m.focused = "list"
+				m.searchInput.Blur()
+			} else {
+				m.focused = "input"
+				m.searchInput.Focus()
+			}
 		}
 	case tea.WindowSizeMsg:
 		h, v := docStyle.GetFrameSize()
-		m.list.SetSize(msg.Width-h, msg.Height-v)
+		m.list.SetSize(msg.Width-h, msg.Height-v-3)
 	}
 
-	var cmd tea.Cmd
-	m.searchInput, cmd = m.searchInput.Update(msg)
-	m.list, _ = m.list.Update(msg)
+	if m.focused == "input" {
+		m.searchInput, cmd = m.searchInput.Update(msg)
+		m.filterList()
+	} else {
+		m.list, cmd = m.list.Update(msg)
+	}
+
 	return m, cmd
+}
+
+// Update the View method of searchModel
+func (m searchModel) View() string {
+	var b strings.Builder
+
+	b.WriteString("Search: " + m.searchInput.View() + "\n\n")
+	b.WriteString(m.list.View())
+
+	return docStyle.Render(b.String())
+}
+
+// Add this new method to filter the list based on search input
+func (m *searchModel) filterList() {
+	searchTerm := strings.ToLower(m.searchInput.Value())
+	var filtered []list.Item
+	for _, entry := range m.entries {
+		if strings.Contains(strings.ToLower(entry.Source), searchTerm) || strings.Contains(strings.ToLower(entry.Username), searchTerm) {
+			filtered = append(filtered, listItem{
+				title: fmt.Sprintf("%s/%s", entry.Source, entry.Username),
+				desc:  "Press enter to copy password",
+			})
+		}
+	}
+	m.list.SetItems(filtered)
 }
 
 func getPassword(name string) {
