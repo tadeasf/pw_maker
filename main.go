@@ -14,6 +14,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/sahilm/fuzzy"
 	"github.com/spf13/cobra"
 )
 
@@ -165,10 +166,11 @@ func showPasswords() {
 type PasswordEntry struct {
 	Source   string
 	Username string
+	URL      string
 }
 
 func getPasswordEntries() []PasswordEntry {
-	rows, err := db.Query("SELECT source, username FROM passwords")
+	rows, err := db.Query("SELECT source, username, url FROM passwords")
 	if err != nil {
 		fmt.Println(styleError.Render("Error fetching passwords: " + err.Error()))
 		return nil
@@ -178,7 +180,7 @@ func getPasswordEntries() []PasswordEntry {
 	var entries []PasswordEntry
 	for rows.Next() {
 		var entry PasswordEntry
-		err := rows.Scan(&entry.Source, &entry.Username)
+		err := rows.Scan(&entry.Source, &entry.Username, &entry.URL)
 		if err != nil {
 			fmt.Println(styleError.Render("Error scanning row: " + err.Error()))
 			continue
@@ -188,6 +190,7 @@ func getPasswordEntries() []PasswordEntry {
 
 	return entries
 }
+
 func searchPasswords() {
 	entries := getPasswordEntries()
 	if len(entries) == 0 {
@@ -210,13 +213,16 @@ func searchPasswords() {
 
 // Update the listItem type definition
 type listItem struct {
-	title string
-	desc  string
+	title    string
+	desc     string
+	source   string
+	username string
+	url      string
 }
 
 // Implement the FilterValue method for the list.Item interface
 func (i listItem) FilterValue() string {
-	return i.title
+	return i.title + i.source + i.username + i.url
 }
 
 // Update the searchModel struct
@@ -246,8 +252,12 @@ func initialSearchModel(entries []PasswordEntry) searchModel {
 
 	items := convertToListItems(entries)
 	delegate := list.NewDefaultDelegate()
+	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.Foreground(lipgloss.Color("#FF00FF"))
+	delegate.Styles.SelectedDesc = delegate.Styles.SelectedDesc.Foreground(lipgloss.Color("#FF00FF"))
+
 	m.list = list.New(items, delegate, 0, 0)
 	m.list.Title = "Passwords"
+	m.list.SetStatusBarItemName("password", "passwords")
 
 	return m
 }
@@ -257,8 +267,11 @@ func convertToListItems(entries []PasswordEntry) []list.Item {
 	listItems := make([]list.Item, len(entries))
 	for i, entry := range entries {
 		listItems[i] = listItem{
-			title: fmt.Sprintf("%s/%s", entry.Source, entry.Username),
-			desc:  "Press enter to copy password",
+			title:    fmt.Sprintf("%s/%s", entry.Source, entry.Username),
+			desc:     entry.URL,
+			source:   entry.Source,
+			username: entry.Username,
+			url:      entry.URL,
 		}
 	}
 	return listItems
@@ -327,15 +340,28 @@ func (m searchModel) View() string {
 
 // Add this new method to filter the list based on search input
 func (m *searchModel) filterList() {
-	searchTerm := strings.ToLower(m.searchInput.Value())
+	if m.searchInput.Value() == "" {
+		m.list.SetItems(convertToListItems(m.entries))
+		return
+	}
+
+	pattern := m.searchInput.Value()
+	targets := make([]string, len(m.entries))
+	for i, entry := range m.entries {
+		targets[i] = fmt.Sprintf("%s/%s %s", entry.Source, entry.Username, entry.URL)
+	}
+
+	matches := fuzzy.Find(pattern, targets)
 	var filtered []list.Item
-	for _, entry := range m.entries {
-		if strings.Contains(strings.ToLower(entry.Source), searchTerm) || strings.Contains(strings.ToLower(entry.Username), searchTerm) {
-			filtered = append(filtered, listItem{
-				title: fmt.Sprintf("%s/%s", entry.Source, entry.Username),
-				desc:  "Press enter to copy password",
-			})
-		}
+	for _, match := range matches {
+		entry := m.entries[match.Index]
+		filtered = append(filtered, listItem{
+			title:    fmt.Sprintf("%s/%s", entry.Source, entry.Username),
+			desc:     entry.URL,
+			source:   entry.Source,
+			username: entry.Username,
+			url:      entry.URL,
+		})
 	}
 	m.list.SetItems(filtered)
 }
