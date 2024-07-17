@@ -14,7 +14,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	_ "github.com/mattn/go-sqlite3"
-	"github.com/sahilm/fuzzy"
 	"github.com/spf13/cobra"
 )
 
@@ -211,7 +210,6 @@ func searchPasswords() {
 	}
 }
 
-// Update the listItem type definition
 type listItem struct {
 	title    string
 	desc     string
@@ -225,7 +223,6 @@ func (i listItem) FilterValue() string {
 	return i.title + i.source + i.username + i.url
 }
 
-// Update the searchModel struct
 type searchModel struct {
 	entries      []PasswordEntry
 	searchInput  textinput.Model
@@ -239,7 +236,6 @@ func (m searchModel) Init() tea.Cmd {
 	return textinput.Blink
 }
 
-// Update the initialSearchModel function
 func initialSearchModel(entries []PasswordEntry) searchModel {
 	m := searchModel{
 		entries: entries,
@@ -259,25 +255,46 @@ func initialSearchModel(entries []PasswordEntry) searchModel {
 	m.list.Title = "Passwords"
 	m.list.SetStatusBarItemName("password", "passwords")
 
+	m.list.Styles.Title = m.list.Styles.Title.
+		Background(lipgloss.Color("#25A065")).
+		Foreground(lipgloss.Color("#FFFFFF"))
+
 	return m
 }
 
-// Update the convertToListItems function
 func convertToListItems(entries []PasswordEntry) []list.Item {
-	listItems := make([]list.Item, len(entries))
+	items := make([]list.Item, len(entries))
 	for i, entry := range entries {
-		listItems[i] = listItem{
-			title:    fmt.Sprintf("%s/%s", entry.Source, entry.Username),
+		items[i] = listItem{
+			title:    fmt.Sprintf("%s / %s", entry.Source, entry.Username),
 			desc:     entry.URL,
 			source:   entry.Source,
 			username: entry.Username,
 			url:      entry.URL,
 		}
 	}
-	return listItems
+	return items
 }
 
-// Update the Update method of searchModel
+func (m searchModel) View() string {
+	var b strings.Builder
+
+	b.WriteString("Search: ")
+	if m.focused == "input" {
+		b.WriteString(styleSuccess.Render(m.searchInput.View()))
+	} else {
+		b.WriteString(m.searchInput.View())
+	}
+	b.WriteString("\n\n")
+
+	if m.focused == "list" {
+		b.WriteString(styleSuccess.Render("(Use arrow keys to navigate, Enter to select)\n"))
+	}
+	b.WriteString(m.list.View())
+
+	return docStyle.Render(b.String())
+}
+
 func (m searchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
@@ -303,6 +320,8 @@ func (m searchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.focused == "list" {
 				m.focused = "input"
 				m.searchInput.Focus()
+			} else {
+				return m, tea.Quit
 			}
 		case "tab":
 			if m.focused == "input" {
@@ -311,6 +330,12 @@ func (m searchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.focused = "input"
 				m.searchInput.Focus()
+			}
+		case "up", "down":
+			if m.focused == "list" {
+				var listCmd tea.Cmd
+				m.list, listCmd = m.list.Update(msg)
+				return m, listCmd
 			}
 		}
 	case tea.WindowSizeMsg:
@@ -328,40 +353,26 @@ func (m searchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// Update the View method of searchModel
-func (m searchModel) View() string {
-	var b strings.Builder
-
-	b.WriteString("Search: " + m.searchInput.View() + "\n\n")
-	b.WriteString(m.list.View())
-
-	return docStyle.Render(b.String())
-}
-
-// Add this new method to filter the list based on search input
 func (m *searchModel) filterList() {
 	if m.searchInput.Value() == "" {
 		m.list.SetItems(convertToListItems(m.entries))
 		return
 	}
 
-	pattern := m.searchInput.Value()
-	targets := make([]string, len(m.entries))
-	for i, entry := range m.entries {
-		targets[i] = fmt.Sprintf("%s/%s %s", entry.Source, entry.Username, entry.URL)
-	}
-
-	matches := fuzzy.Find(pattern, targets)
+	pattern := strings.ToLower(m.searchInput.Value())
 	var filtered []list.Item
-	for _, match := range matches {
-		entry := m.entries[match.Index]
-		filtered = append(filtered, listItem{
-			title:    fmt.Sprintf("%s/%s", entry.Source, entry.Username),
-			desc:     entry.URL,
-			source:   entry.Source,
-			username: entry.Username,
-			url:      entry.URL,
-		})
+	for _, entry := range m.entries {
+		if strings.Contains(strings.ToLower(entry.Source), pattern) ||
+			strings.Contains(strings.ToLower(entry.Username), pattern) ||
+			strings.Contains(strings.ToLower(entry.URL), pattern) {
+			filtered = append(filtered, listItem{
+				title:    fmt.Sprintf("%s / %s", entry.Source, entry.Username),
+				desc:     entry.URL,
+				source:   entry.Source,
+				username: entry.Username,
+				url:      entry.URL,
+			})
+		}
 	}
 	m.list.SetItems(filtered)
 }
@@ -401,14 +412,12 @@ func getPassword(name string) {
 	}
 }
 
-// Add this new type for password storage
 type storePasswordModel struct {
 	textInputs []textinput.Model
 	password   string
 	focusIndex int
 }
 
-// Add this new function to initialize the store password model
 func initialStorePasswordModel(password string) storePasswordModel {
 	m := storePasswordModel{
 		textInputs: make([]textinput.Model, 3),
@@ -437,7 +446,6 @@ func initialStorePasswordModel(password string) storePasswordModel {
 	return m
 }
 
-// Add these methods for the new model
 func (m storePasswordModel) Init() tea.Cmd {
 	return textinput.Blink
 }
@@ -513,7 +521,6 @@ func (m storePasswordModel) View() string {
 	return b.String()
 }
 
-// Modify the storeInPass function
 func storeInPass(password string) {
 	fmt.Println(stylePrompt.Render("Do you want to store this password? (y/n)"))
 	var response string
