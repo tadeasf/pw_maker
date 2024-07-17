@@ -87,7 +87,7 @@ type model struct {
 
 func initialModel(password string) model {
 	m := model{
-		textInputs: make([]textinput.Model, 2),
+		textInputs: make([]textinput.Model, 3),
 		password:   password,
 		focusIndex: 0,
 	}
@@ -95,14 +95,16 @@ func initialModel(password string) model {
 	var t textinput.Model
 	for i := range m.textInputs {
 		t = textinput.New()
-		t.CharLimit = 32
+		t.CharLimit = 100
 
 		switch i {
 		case 0:
 			t.Placeholder = "Enter username"
 			t.Focus()
 		case 1:
-			t.Placeholder = "Enter source (URL, database, etc.)"
+			t.Placeholder = "Enter source (e.g., website name, database name)"
+		case 2:
+			t.Placeholder = "Enter URL"
 		}
 
 		m.textInputs[i] = t
@@ -201,15 +203,16 @@ func storeInPass(password string) {
 	finalModel := m.(model)
 	username := finalModel.textInputs[0].Value()
 	source := finalModel.textInputs[1].Value()
+	url := finalModel.textInputs[2].Value()
 
 	if username == "" || source == "" {
 		fmt.Println(stylePrompt.Render("👋 Exiting without storing password."))
 		return
 	}
 
-	passEntry := fmt.Sprintf("%s\nusername: %s\nsource: %s", password, username, source)
+	passEntry := fmt.Sprintf("%s\nusername: %s\nsource: %s\nurl: %s", password, username, source, url)
 
-	passName := fmt.Sprintf("%s/%s", source[:100], username)
+	passName := fmt.Sprintf("%s/%s", source, username)
 
 	cmd := exec.Command("pass", "insert", "-m", passName)
 	cmd.Stdin = strings.NewReader(passEntry)
