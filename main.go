@@ -9,9 +9,11 @@ import (
 	"time"
 
 	"github.com/atotto/clipboard"
+	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/sahilm/fuzzy"
 	"github.com/spf13/cobra"
 )
 
@@ -79,10 +81,25 @@ func generatePassword() {
 	storeInPass(string(password))
 }
 
+type passwordItem struct {
+	name     string
+	username string
+	source   string
+	url      string
+	password string
+}
+
+func (i passwordItem) Title() string       { return i.name }
+func (i passwordItem) Description() string { return i.source }
+func (i passwordItem) FilterValue() string { return i.name + i.username + i.source + i.url }
+
 type model struct {
-	textInputs []textinput.Model
-	password   string
-	focusIndex int
+	textInputs   []textinput.Model
+	password     string
+	focusIndex   int
+	passwordList list.Model
+	searchInput  textinput.Model
+	passwords    []passwordItem
 }
 
 func initialModel(password string) model {
@@ -110,7 +127,64 @@ func initialModel(password string) model {
 		m.textInputs[i] = t
 	}
 
+	m.searchInput = textinput.New()
+	m.searchInput.Placeholder = "Search passwords..."
+	m.searchInput.Focus()
+
+	m.passwords = getPasswords()
+	m.passwordList = list.New(convertToListItems(m.passwords), list.NewDefaultDelegate(), 0, 0)
+	m.passwordList.Title = "Passwords"
+
 	return m
+}
+
+func getPasswords() []passwordItem {
+	cmd := exec.Command("pass", "ls", "--flat")
+	output, err := cmd.CombinedOutput() // Capture both stdout and stderr
+	if err != nil {
+		fmt.Printf("Error fetching passwords: %v\nOutput: %s\n", err, string(output))
+		return nil
+	}
+
+	var passwords []passwordItem
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		if line != "" {
+			name := strings.TrimSpace(line)
+			passwords = append(passwords, getPasswordDetails(name))
+		}
+	}
+	return passwords
+}
+
+func getPasswordDetails(name string) passwordItem {
+	cmd := exec.Command("pass", "show", name)
+	output, err := cmd.Output()
+	if err != nil {
+		fmt.Printf("Error fetching password details for %s: %v\n", name, err)
+		return passwordItem{name: name}
+	}
+
+	lines := strings.Split(string(output), "\n")
+	item := passwordItem{name: name, password: lines[0]}
+	for _, line := range lines[1:] {
+		if strings.HasPrefix(line, "username:") {
+			item.username = strings.TrimSpace(strings.TrimPrefix(line, "username:"))
+		} else if strings.HasPrefix(line, "source:") {
+			item.source = strings.TrimSpace(strings.TrimPrefix(line, "source:"))
+		} else if strings.HasPrefix(line, "url:") {
+			item.url = strings.TrimSpace(strings.TrimPrefix(line, "url:"))
+		}
+	}
+	return item
+}
+
+func convertToListItems(passwords []passwordItem) []list.Item {
+	items := make([]list.Item, len(passwords))
+	for i, p := range passwords {
+		items[i] = p
+	}
+	return items
 }
 
 func (m model) Init() tea.Cmd {
@@ -121,75 +195,73 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "ctrl+c", "esc":
+		case "ctrl+c", "q":
 			return m, tea.Quit
-		case "tab", "shift+tab", "enter", "up", "down":
-			s := msg.String()
-
-			if s == "enter" && m.focusIndex == len(m.textInputs) {
+		case "enter":
+			if m.searchInput.Focused() {
+				m.passwordList.SetItems(m.filterPasswords(m.searchInput.Value()))
+				m.searchInput.Blur()
+				return m, nil
+			}
+			selectedItem := m.passwordList.SelectedItem()
+			if selectedItem != nil {
+				password := selectedItem.(passwordItem)
+				err := clipboard.WriteAll(fmt.Sprintf("Password: %s\nUsername: %s\nSource: %s\nURL: %s", password.password, password.username, password.source, password.url))
+				if err != nil {
+					fmt.Println("Error copying to clipboard:", err)
+				}
 				return m, tea.Quit
 			}
-
-			if s == "up" || s == "shift+tab" {
-				m.focusIndex--
+		case "tab":
+			if m.searchInput.Focused() {
+				m.searchInput.Blur()
 			} else {
-				m.focusIndex++
+				m.searchInput.Focus()
 			}
-
-			if m.focusIndex > len(m.textInputs) {
-				m.focusIndex = 0
-			} else if m.focusIndex < 0 {
-				m.focusIndex = len(m.textInputs)
-			}
-
-			cmds := make([]tea.Cmd, len(m.textInputs))
-			for i := 0; i <= len(m.textInputs)-1; i++ {
-				if i == m.focusIndex {
-					cmds[i] = m.textInputs[i].Focus()
-					continue
-				}
-				m.textInputs[i].Blur()
-			}
-
-			return m, tea.Batch(cmds...)
+		case "j", "down":
+			m.passwordList.CursorDown()
+		case "k", "up":
+			m.passwordList.CursorUp()
 		}
+	case tea.WindowSizeMsg:
+		h, v := docStyle.GetFrameSize()
+		m.passwordList.SetSize(msg.Width-h, msg.Height-v)
 	}
 
-	cmd := m.updateInputs(msg)
-
+	var cmd tea.Cmd
+	m.searchInput, cmd = m.searchInput.Update(msg)
+	m.passwordList, _ = m.passwordList.Update(msg)
 	return m, cmd
 }
 
-func (m *model) updateInputs(msg tea.Msg) tea.Cmd {
-	cmds := make([]tea.Cmd, len(m.textInputs))
-
-	for i := range m.textInputs {
-		m.textInputs[i], cmds[i] = m.textInputs[i].Update(msg)
-	}
-
-	return tea.Batch(cmds...)
+func (m model) View() string {
+	return docStyle.Render(fmt.Sprintf(
+		"%s\n\n%s",
+		m.searchInput.View(),
+		m.passwordList.View(),
+	))
 }
 
-func (m model) View() string {
-	var b strings.Builder
-
-	b.WriteString(styleHeading.Render("Store Password in Pass"))
-	b.WriteString("\n\n")
-
-	for i := range m.textInputs {
-		b.WriteString(m.textInputs[i].View())
-		b.WriteString("\n")
+func (m *model) filterPasswords(query string) []list.Item {
+	if query == "" {
+		return convertToListItems(m.passwords)
 	}
 
-	button := "[ Store ]"
-	if m.focusIndex == len(m.textInputs) {
-		button = stylePassword.Render(button)
+	// Extract the filter values from password items
+	var filterValues []string
+	for _, p := range m.passwords {
+		filterValues = append(filterValues, p.FilterValue())
 	}
-	fmt.Fprintf(&b, "\n%s\n", button)
 
-	b.WriteString("\n(tab to navigate • enter to select)")
+	// Perform fuzzy search on the extracted filter values
+	matches := fuzzy.Find(query, filterValues)
 
-	return b.String()
+	// Collect the matched password items
+	var filtered []list.Item
+	for _, match := range matches {
+		filtered = append(filtered, m.passwords[match.Index])
+	}
+	return filtered
 }
 
 func storeInPass(password string) {
@@ -234,3 +306,21 @@ func main() {
 		os.Exit(1)
 	}
 }
+
+var listCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List and search passwords",
+	Run: func(cmd *cobra.Command, args []string) {
+		p := tea.NewProgram(initialModel(""), tea.WithAltScreen())
+		if _, err := p.Run(); err != nil {
+			fmt.Println("Error running program:", err)
+			os.Exit(1)
+		}
+	},
+}
+
+func init() {
+	rootCmd.AddCommand(listCmd)
+}
+
+var docStyle = lipgloss.NewStyle().Margin(1, 2)
