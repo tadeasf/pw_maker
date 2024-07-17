@@ -9,13 +9,36 @@ import (
 	"time"
 
 	"github.com/atotto/clipboard"
-	"github.com/fatih/color"
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 )
 
 var (
 	includeSpecial bool
 	length         int
+)
+
+var (
+	styleHeading = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FAFAFA")).
+			Background(lipgloss.Color("#7D56F4")).
+			Padding(0, 1)
+
+	styleSuccess = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#04B575"))
+
+	styleError = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FF0000"))
+
+	stylePrompt = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#04B575"))
+
+	stylePassword = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FAFAFA")).
+			Background(lipgloss.Color("#7D56F4")).
+			Padding(0, 1)
 )
 
 func init() {
@@ -43,54 +66,133 @@ func generatePassword() {
 		password[i] = charset[rand.Intn(len(charset))]
 	}
 
-	color.Cyan("🔐 Generated password: ")
-	color.Green("%s\n", string(password))
+	fmt.Println(styleHeading.Render("🔐 Generated Password"))
+	fmt.Println(stylePassword.Render(string(password)))
 
 	err := clipboard.WriteAll(string(password))
 	if err != nil {
-		color.Red("❌ Failed to copy password to clipboard: %v\n", err)
+		fmt.Println(styleError.Render("❌ Failed to copy password to clipboard: " + err.Error()))
 	} else {
-		color.Yellow("📋 Password copied to clipboard.\n")
+		fmt.Println(styleSuccess.Render("📋 Password copied to clipboard."))
 	}
 
 	storeInPass(string(password))
 }
 
-func storeInPass(password string) {
-	color.Cyan("💾 Do you want to store the password in Pass? (y/n): ")
-	var answer string
-	fmt.Scanln(&answer)
+type model struct {
+	textInputs []textinput.Model
+	password   string
+}
 
-	if strings.ToLower(answer) == "y" {
-		var username, source string
-		color.Cyan("👤 Enter username: ")
-		fmt.Scanln(&username)
-		color.Cyan("🌐 Enter source (URL, database, etc.): ")
-		fmt.Scanln(&source)
-
-		passEntry := fmt.Sprintf("%s\nusername: %s\nsource: %s", password, username, source)
-		passName := fmt.Sprintf("%s/%s", source, username)
-
-		cmd := exec.Command("pass", "insert", "-m", passName)
-		cmd.Stdin = strings.NewReader(passEntry)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-
-		err := cmd.Run()
-		if err != nil {
-			color.Red("❌ Failed to store password in Pass: %v\n", err)
-		} else {
-			color.Green("✅ Password stored in Pass successfully.\n")
-		}
+func initialModel(password string) model {
+	m := model{
+		textInputs: make([]textinput.Model, 2),
+		password:   password,
 	}
 
-	color.Cyan("👋 Exiting.")
+	var t textinput.Model
+	for i := range m.textInputs {
+		t = textinput.New()
+		t.CharLimit = 32
+
+		switch i {
+		case 0:
+			t.Placeholder = "Enter username"
+			t.Focus()
+		case 1:
+			t.Placeholder = "Enter source (URL, database, etc.)"
+		}
+
+		m.textInputs[i] = t
+	}
+
+	return m
+}
+
+func (m model) Init() tea.Cmd {
+	return textinput.Blink
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "esc":
+			return m, tea.Quit
+
+		case "enter":
+			if m.textInputs[1].Value() != "" {
+				return m, tea.Quit
+			}
+			return m, nil
+		}
+
+	case error:
+		return m, nil
+	}
+
+	cmd := m.updateInputs(msg)
+
+	return m, cmd
+}
+
+func (m *model) updateInputs(msg tea.Msg) tea.Cmd {
+	cmds := make([]tea.Cmd, len(m.textInputs))
+
+	for i := range m.textInputs {
+		m.textInputs[i], cmds[i] = m.textInputs[i].Update(msg)
+	}
+
+	return tea.Batch(cmds...)
+}
+
+func (m model) View() string {
+	return fmt.Sprintf(
+		"%s\n\n%s\n\n%s\n\n%s\n\n",
+		styleHeading.Render("Store Password in Pass"),
+		m.textInputs[0].View(),
+		m.textInputs[1].View(),
+		"(press enter to finish)",
+	) + "\n"
+}
+
+func storeInPass(password string) {
+	p := tea.NewProgram(initialModel(password))
+	m, err := p.StartReturningModel()
+	if err != nil {
+		fmt.Println("Error running program:", err)
+		os.Exit(1)
+	}
+
+	finalModel := m.(model)
+	username := finalModel.textInputs[0].Value()
+	source := finalModel.textInputs[1].Value()
+
+	if username == "" || source == "" {
+		fmt.Println(stylePrompt.Render("👋 Exiting without storing password."))
+		return
+	}
+
+	passEntry := fmt.Sprintf("%s\nusername: %s\nsource: %s", password, username, source)
+	passName := fmt.Sprintf("%s/%s", source, username)
+
+	cmd := exec.Command("pass", "insert", "-m", passName)
+	cmd.Stdin = strings.NewReader(passEntry)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	err = cmd.Run()
+	if err != nil {
+		fmt.Println(styleError.Render("❌ Failed to store password in Pass: " + err.Error()))
+	} else {
+		fmt.Println(styleSuccess.Render("✅ Password stored in Pass successfully."))
+	}
 }
 
 func main() {
-	color.Blue("🔑 Password Generator CLI\n")
+	fmt.Println(styleHeading.Render("🔑 Password Generator CLI"))
 	if err := rootCmd.Execute(); err != nil {
-		color.Red("Error: %v\n", err)
+		fmt.Println(styleError.Render("Error: " + err.Error()))
 		os.Exit(1)
 	}
 }
