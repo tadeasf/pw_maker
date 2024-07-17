@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/atotto/clipboard"
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
 
@@ -42,28 +43,29 @@ func generatePassword() {
 		password[i] = charset[rand.Intn(len(charset))]
 	}
 
-	fmt.Printf("Generated password: %s\n", string(password))
+	color.Cyan("🔐 Generated password: ")
+	color.Green("%s\n", string(password))
 
 	err := clipboard.WriteAll(string(password))
 	if err != nil {
-		fmt.Println("Failed to copy password to clipboard:", err)
+		color.Red("❌ Failed to copy password to clipboard: %v\n", err)
 	} else {
-		fmt.Println("Password copied to clipboard.")
+		color.Yellow("📋 Password copied to clipboard.\n")
 	}
 
 	storeInPass(string(password))
 }
 
 func storeInPass(password string) {
-	fmt.Print("Do you want to store the password in Pass? (y/n): ")
+	color.Cyan("💾 Do you want to store the password in Pass? (y/n): ")
 	var answer string
 	fmt.Scanln(&answer)
 
 	if strings.ToLower(answer) == "y" {
 		var username, source string
-		fmt.Print("Enter username: ")
+		color.Cyan("👤 Enter username: ")
 		fmt.Scanln(&username)
-		fmt.Print("Enter source (URL, database, etc.): ")
+		color.Cyan("🌐 Enter source (URL, database, etc.): ")
 		fmt.Scanln(&source)
 
 		passEntry := fmt.Sprintf("%s\nusername: %s\nsource: %s", password, username, source)
@@ -76,18 +78,19 @@ func storeInPass(password string) {
 
 		err := cmd.Run()
 		if err != nil {
-			fmt.Println("Failed to store password in Pass:", err)
+			color.Red("❌ Failed to store password in Pass: %v\n", err)
 		} else {
-			fmt.Println("Password stored in Pass successfully.")
+			color.Green("✅ Password stored in Pass successfully.\n")
 		}
 	}
 
-	fmt.Println("Exiting.")
+	color.Cyan("👋 Exiting.")
 }
 
 func main() {
+	color.Blue("🔑 Password Generator CLI\n")
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Println(err)
+		color.Red("Error: %v\n", err)
 		os.Exit(1)
 	}
 }
