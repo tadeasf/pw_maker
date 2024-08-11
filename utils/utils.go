@@ -25,6 +25,8 @@ var (
 	StyleError = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#F38BA8"))
 
+	StyleInfo = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#A6E3A1"))
 	StylePrompt = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#A6E3A1"))
 

@@ -1,3 +1,6 @@
 pw_maker
 passwords.db
 *.csv
+.history
+.vscode
+.DS_Store

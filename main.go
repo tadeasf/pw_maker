@@ -22,6 +22,8 @@ func init() {
 	rootCmd.AddCommand(importCmd)
 	rootCmd.AddCommand(deleteCmd)
 	rootCmd.AddCommand(updateCmd)
+	rootCmd.AddCommand(backupDBCmd)
+	rootCmd.AddCommand(importDBCmd)
 }
 
 var rootCmd = &cobra.Command{
@@ -40,6 +42,8 @@ Available Commands:
   import      Import passwords from a CSV file
   delete      Delete a specific password
   update      Update a specific password
+  backup      Backup the password database
+  importdb    Import a password database
 
 Flags:
   -h, --help   help for fortpass
@@ -99,6 +103,24 @@ var updateCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		functions.UpdatePassword(args[0])
+	},
+}
+
+var backupDBCmd = &cobra.Command{
+	Use:   "backupdb [destination]",
+	Short: "Backup the password database",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		functions.BackupDatabase(args[0])
+	},
+}
+
+var importDBCmd = &cobra.Command{
+	Use:   "importdb [db_file]",
+	Short: "Import a password database",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		functions.ImportDatabase(args[0])
 	},
 }
 

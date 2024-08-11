@@ -114,22 +114,38 @@ func CheckAndMigrateDatabase() {
 	if version < 2 {
 		// Perform migration to version 2
 		_, err = DB.Exec(`
-            ALTER TABLE passwords ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP;
-            ALTER TABLE passwords ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP;
+            BEGIN TRANSACTION;
+            
+            CREATE TABLE passwords_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source TEXT,
+                username TEXT,
+                password TEXT,
+                url TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(source, username, url)
+            );
+            
+            INSERT INTO passwords_new (id, source, username, password, url, created_at, updated_at)
+            SELECT id, source, username, password, url, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            FROM passwords;
+            
+            DROP TABLE passwords;
+            
+            ALTER TABLE passwords_new RENAME TO passwords;
+            
+            UPDATE version SET version = 2;
+            
+            COMMIT;
         `)
 		if err != nil {
 			fmt.Println(StyleError.Render("Error migrating database to version 2: " + err.Error()))
 			os.Exit(1)
 		}
-		_, err = DB.Exec("UPDATE version SET version = 2")
-		if err != nil {
-			fmt.Println(StyleError.Render("Error updating database version: " + err.Error()))
-			os.Exit(1)
-		}
 		fmt.Println(StyleSuccess.Render("Database migrated to version 2"))
 	}
 }
-
 func GetPasswordEntries() []PasswordEntry {
 	rows, err := DB.Query("SELECT source, username, url, created_at, updated_at FROM passwords")
 	if err != nil {

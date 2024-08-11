@@ -42,8 +42,26 @@ func UpdatePassword(name string) {
 		return
 	}
 
-	// Generate a new password
-	newPassword := GenerateNewPassword()
+	fmt.Println(utils.StylePrompt.Render("Do you want to generate a new password or input one manually? (g/m):"))
+	var choice string
+	_, err = fmt.Scanln(&choice)
+	if err != nil {
+		fmt.Println(utils.StyleError.Render("❌ Error reading input: " + err.Error()))
+		return
+	}
+
+	var newPassword string
+	if strings.ToLower(choice) == "g" {
+		newPassword = GenerateNewPassword()
+		fmt.Println(utils.StylePassword.Render("New generated password: " + newPassword))
+	} else {
+		fmt.Println(utils.StylePrompt.Render("Enter the new password:"))
+		_, err = fmt.Scanln(&newPassword)
+		if err != nil {
+			fmt.Println(utils.StyleError.Render("❌ Error reading input: " + err.Error()))
+			return
+		}
+	}
 
 	// Update the password in the database
 	_, err = utils.DB.Exec("UPDATE passwords SET password = ?, updated_at = CURRENT_TIMESTAMP WHERE source = ? AND username = ?", newPassword, source, username)
