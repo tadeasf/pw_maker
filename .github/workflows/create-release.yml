@@ -3,7 +3,7 @@ name: Create Release
 on:
   push:
     branches:
-      - main
+      - master  # Change this to 'main' if your default branch is named 'main'
   workflow_dispatch:
     inputs:
       version_bump:
@@ -27,6 +27,10 @@ jobs:
     - uses: actions/checkout@v3
       with:
         fetch-depth: 0
+        token: ${{ secrets.PAT }}
+
+    - name: Fetch all tags
+      run: git fetch --tags
 
     - name: Display go.mod
       run: cat go.mod
@@ -61,7 +65,7 @@ jobs:
       with:
         configuration: "changelog-config.json"
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_TOKEN: ${{ secrets.PAT }}
 
     - name: Create Release
       uses: softprops/action-gh-release@v1
@@ -76,4 +80,4 @@ jobs:
           pw_maker/build/pw_maker_darwin_amd64
           pw_maker/build/pw_maker_windows_amd64.exe
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_TOKEN: ${{ secrets.PAT }}
