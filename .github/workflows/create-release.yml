@@ -4,6 +4,17 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: 'Version bump type (major, minor, patch)'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+        - major
+        - minor
+        - patch
 
 jobs:
   release:
@@ -37,7 +48,7 @@ jobs:
       uses: anothrNick/github-tag-action@1.61.0
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        DEFAULT_BUMP: patch
+        DEFAULT_BUMP: ${{ github.event.inputs.version_bump || 'patch' }}
         WITH_V: true
 
     - name: Generate changelog
@@ -57,8 +68,8 @@ jobs:
         draft: false
         prerelease: false
         files: |
-          build/pw_maker_linux_amd64
-          build/pw_maker_darwin_amd64
-          build/pw_maker_windows_amd64.exe
+          pw_maker/build/pw_maker_linux_amd64
+          pw_maker/build/pw_maker_darwin_amd64
+          pw_maker/build/pw_maker_windows_amd64.exe
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
