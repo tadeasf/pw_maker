@@ -81,5 +81,7 @@ jobs:
           pw_maker/build/pw_maker_linux_amd64
           pw_maker/build/pw_maker_darwin_amd64
           pw_maker/build/pw_maker_windows_amd64.exe
+          pw_maker/build/pw_maker_darwin_arm64
+          pw_maker/build/pw_maker_linux_arm64
       env:
         GITHUB_TOKEN: ${{ secrets.PAT }}
