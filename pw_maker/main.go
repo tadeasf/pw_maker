@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/tadeasf/pw_maker/functions"
-	"github.com/tadeasf/pw_maker/utils"
+	"github.com/tadeasf/pw_maker/pw_maker/functions"
+	"github.com/tadeasf/pw_maker/pw_maker/utils"
 
 	"github.com/spf13/cobra"
 )

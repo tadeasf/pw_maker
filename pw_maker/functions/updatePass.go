@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tadeasf/pw_maker/utils"
+	"github.com/tadeasf/pw_maker/pw_maker/utils"
 
 	"github.com/atotto/clipboard"
 	"github.com/spf13/cobra"
