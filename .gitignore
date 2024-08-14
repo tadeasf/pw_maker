@@ -4,3 +4,4 @@ passwords.db
 .vscode
 .DS_Store
 pw_maker/pw_maker
+.air.toml
