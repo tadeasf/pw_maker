@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"pw_cli/pw_maker/utils"
+	"github.com/tadeasf/pw_maker/utils"
 
 	"github.com/spf13/cobra"
 )

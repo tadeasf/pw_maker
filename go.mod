@@ -1,6 +1,6 @@
-module pw_cli
+module github.com/tadeasf/pw_maker
 
-go 1.23.0
+go 1.22
 
 require (
 	github.com/atotto/clipboard v0.1.4

@@ -3,9 +3,10 @@ package functions
 import (
 	"fmt"
 	"math/rand"
-	"pw_cli/pw_maker/utils"
 	"strings"
 	"time"
+
+	"github.com/tadeasf/pw_maker/utils"
 
 	"github.com/atotto/clipboard"
 	"github.com/spf13/cobra"

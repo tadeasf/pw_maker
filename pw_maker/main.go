@@ -3,8 +3,9 @@ package main
 import (
 	"fmt"
 	"os"
-	"pw_cli/pw_maker/functions"
-	"pw_cli/pw_maker/utils"
+
+	"github.com/tadeasf/pw_maker/functions"
+	"github.com/tadeasf/pw_maker/utils"
 
 	"github.com/spf13/cobra"
 )
