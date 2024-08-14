@@ -3,7 +3,7 @@ name: Create Release
 on:
   push:
     branches:
-      - master  # Change this to 'main' if your default branch is named 'main'
+      - master
   workflow_dispatch:
     inputs:
       version_bump:
@@ -50,6 +50,8 @@ jobs:
         GOOS=linux GOARCH=amd64 go build -v -o build/pw_maker_linux_amd64 .
         GOOS=darwin GOARCH=amd64 go build -v -o build/pw_maker_darwin_amd64 .
         GOOS=windows GOARCH=amd64 go build -v -o build/pw_maker_windows_amd64.exe .
+        GOOS=darwin GOARCH=arm64 go build -v -o build/pw_maker_darwin_arm64 .
+        GOOS=linux GOARCH=arm64 go build -v -o build/pw_maker_linux_amd64 .
         
     - name: Bump version and push tag
       id: tag_version
